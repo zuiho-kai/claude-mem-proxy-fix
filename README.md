@@ -11,6 +11,7 @@ Patches for [claude-mem](https://github.com/thedotmack/claude-mem) worker issues
 | 1 | `HTTP_PROXY` leaks into CLI subprocess | `Timed out waiting for agent pool slot after 60000ms` |
 | 2 | Short model name rejected by API proxy | `503 model_not_found` |
 | 3 | Zombie bun worker blocks startup | Claude Code hangs 60s+, worker silently non-functional |
+| 4 | Chroma CLI only supports ARM64 on Windows | `Unsupported Windows architecture: x64` — vector search unavailable |
 
 ## Fix
 
@@ -54,6 +55,22 @@ When the `start` command detects port 37777 is occupied but the worker fails hea
 
 ```
 Port in use → health check FAIL → kill zombie PID → port freed → spawn new worker → health check OK
+```
+
+### Patch 4: Chroma x64 Windows compatibility
+
+The `chromadb` npm package bundles a Chroma binary that only supports ARM64 on Windows. On x64 Windows, it fails with `Unsupported Windows architecture: x64`.
+
+This patch skips the node-bundled binary and uses the Python `chroma` CLI instead (requires `pip install chromadb`).
+
+```diff
+- (0,io.existsSync)(c)?n=c:(0,io.existsSync)(l)?n=l:n=r?"npx.cmd":"npx"
++ r&&process.arch!=="arm64"?n="chroma":(0,io.existsSync)(c)?n=c:(0,io.existsSync)(l)?n=l:n=r?"npx.cmd":"npx"
+```
+
+Prerequisites for Patch 4:
+```bash
+pip install chromadb   # Python 3.9+
 ```
 
 ## Notes

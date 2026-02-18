@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# patch-claude-mem.sh — 修复 claude-mem worker 三个已知问题
+# patch-claude-mem.sh — 修复 claude-mem worker 四个已知问题
 #
 # Patch 1: 代理环境子进程超时 — X5() 注入 NO_PROXY
 # Patch 2: 模型名不匹配 — 短名自动补全日期后缀
 # Patch 3: 僵尸进程自愈 — health check 失败后自动杀僵尸 PID 并重启 worker
+# Patch 4: Chroma x64 Windows — node 版 chroma 不支持 x64，改用 Python 版
 #
 # 跟踪：
 #   https://github.com/thedotmack/claude-mem/issues/1163 (Patch 1 & 2)
@@ -103,6 +104,49 @@ else
     echo "❌ Patch 3 (zombie-kill): 应用失败，源码结构可能已变"
     echo "   请参考 README 手动应用"
     exit 1
+  fi
+fi
+
+# --- Patch 4: Chroma x64 Windows 兼容 ---
+# node 版 chromadb CLI 只支持 ARM64 Windows，x64 会报 "Unsupported Windows architecture"
+# 改为：x64 Windows 上跳过 node 版 chroma.cmd，直接用 Python 版 chroma（需 pip install chromadb）
+if grep -q 'process.arch!=="arm64"' "$WORKER"; then
+  echo "✅ Patch 4 (chroma-x64): 已应用，跳过"
+else
+  # 检测是否需要此 patch（仅 Windows x64）
+  if [[ "$(uname -m)" == "x86_64" ]] && [[ "$(uname -s)" == *MINGW* || "$(uname -s)" == *MSYS* || "$(uname -s)" == *CYGWIN* || "$OS" == "Windows_NT" ]]; then
+    # 先检查 Python 版 chroma 是否可用
+    if ! command -v chroma &>/dev/null; then
+      echo "⚠️  Patch 4 (chroma-x64): Python chromadb 未安装，正在安装..."
+      pip install chromadb 2>&1 | tail -3
+      if ! command -v chroma &>/dev/null; then
+        echo "❌ Patch 4 (chroma-x64): pip install chromadb 失败，请手动安装"
+        exit 1
+      fi
+    fi
+
+    node -e '
+      const fs = require("fs");
+      const f = process.argv[1];
+      let code = fs.readFileSync(f, "utf8");
+      const OLD = `(0,io.existsSync)(c)?n=c:(0,io.existsSync)(l)?n=l:n=r?"npx.cmd":"npx"`;
+      const NEW = `r&&process.arch!=="arm64"?n="chroma":(0,io.existsSync)(c)?n=c:(0,io.existsSync)(l)?n=l:n=r?"npx.cmd":"npx"`;
+      if (!code.includes(OLD)) {
+        console.error("❌ Patch 4: match string not found — source may have changed");
+        process.exit(1);
+      }
+      code = code.replace(OLD, NEW);
+      fs.writeFileSync(f, code);
+    ' "$WORKER"
+
+    if grep -q 'process.arch!=="arm64"' "$WORKER"; then
+      echo "✅ Patch 4 (chroma-x64): 应用成功（使用 Python chromadb）"
+    else
+      echo "❌ Patch 4 (chroma-x64): 应用失败，源码结构可能已变"
+      exit 1
+    fi
+  else
+    echo "✅ Patch 4 (chroma-x64): 非 x64 Windows，跳过"
   fi
 fi
 

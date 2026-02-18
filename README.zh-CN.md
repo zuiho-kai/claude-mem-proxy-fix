@@ -2,7 +2,7 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
-修复 [claude-mem](https://github.com/thedotmack/claude-mem) worker 在 Windows / 代理环境下的三个问题。
+修复 [claude-mem](https://github.com/thedotmack/claude-mem) worker 在 Windows / 代理环境下的四个问题。
 
 ## 问题
 
@@ -11,6 +11,7 @@
 | 1 | `HTTP_PROXY` 泄漏到 CLI 子进程 | `Timed out waiting for agent pool slot after 60000ms` |
 | 2 | 短模型名被 API 代理拒绝 | `503 model_not_found` |
 | 3 | 僵尸 bun worker 阻塞启动 | Claude Code 卡死 60 秒+，worker 静默失效 |
+| 4 | Chroma CLI 仅支持 ARM64 Windows | `Unsupported Windows architecture: x64` — 向量搜索不可用 |
 
 ## 修复
 
@@ -54,6 +55,22 @@ bash claude-mem-proxy-fix/patch-claude-mem.sh
 
 ```
 端口被占 → health check 失败 → 杀僵尸 PID → 端口释放 → spawn 新 worker → health check 通过
+```
+
+### Patch 4: Chroma x64 Windows 兼容
+
+`chromadb` npm 包自带的 Chroma 二进制只支持 ARM64 Windows，x64 上报 `Unsupported Windows architecture: x64`。
+
+本 patch 在 x64 Windows 上跳过 node 版 binary，改用 Python 版 `chroma` CLI。
+
+```diff
+- (0,io.existsSync)(c)?n=c:(0,io.existsSync)(l)?n=l:n=r?"npx.cmd":"npx"
++ r&&process.arch!=="arm64"?n="chroma":(0,io.existsSync)(c)?n=c:(0,io.existsSync)(l)?n=l:n=r?"npx.cmd":"npx"
+```
+
+Patch 4 前置条件：
+```bash
+pip install chromadb   # Python 3.9+
 ```
 
 ## 注意

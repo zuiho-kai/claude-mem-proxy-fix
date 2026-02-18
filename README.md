@@ -1,62 +1,64 @@
 # claude-mem-proxy-fix
 
-修复 [claude-mem](https://github.com/thedotmack/claude-mem) 插件在代理环境下 CLI 子进程超时的问题。
+[English](README.md) | [中文](README.zh-CN.md)
 
-## 问题
+Fix [claude-mem](https://github.com/thedotmack/claude-mem) plugin CLI subprocess timeout in proxy environments.
 
-当系统设置了 `HTTP_PROXY`/`HTTPS_PROXY`（如 clash、v2ray 等），且 `ANTHROPIC_BASE_URL` 指向 localhost 的 API 代理时，claude-mem 的 observation 提取功能会失败：
+## Problem
 
-1. **子进程超时** — `X5()` (getAgentEnv) 把 `HTTP_PROXY` 传给 Claude CLI 子进程，子进程访问 `127.0.0.1` 的 API 代理时走了 HTTP 代理 → 超时
-2. **模型名不匹配** — `CLAUDE_MEM_MODEL` 设为短名（如 `claude-sonnet-4-5`），部分 API 代理只认带日期后缀的完整名 → `503 model_not_found`
+When `HTTP_PROXY`/`HTTPS_PROXY` is set (e.g. clash, v2ray) and `ANTHROPIC_BASE_URL` points to a localhost API proxy, claude-mem's observation extraction fails:
 
-## 症状
+1. **Subprocess timeout** — `X5()` (getAgentEnv) passes `HTTP_PROXY` to the spawned Claude CLI subprocess, which then routes requests to `127.0.0.1` through the HTTP proxy → timeout
+2. **Model name mismatch** — `CLAUDE_MEM_MODEL` set to short name (e.g. `claude-sonnet-4-5`), but some API proxies only accept full names with date suffix → `503 model_not_found`
+
+## Symptoms
 
 ```
 [ERROR] Generator failed {provider=claude, error=Timed out waiting for agent pool slot after 60000ms}
 [INFO ] ← Response received: API Error: 503 {"error":{"code":"model_not_found",...}}
 ```
 
-Worker health check 显示 `initialized: false`，observations 表始终为空。
+Worker health check shows `initialized: false`, observations table stays empty.
 
-## 修复
+## Fix
 
 ```bash
-# 下载并执行
+# Download and run
 curl -fsSL https://raw.githubusercontent.com/zuiho-kai/claude-mem-proxy-fix/main/patch-claude-mem.sh | bash
 
-# 或者 clone 后执行
+# Or clone and run
 git clone https://github.com/zuiho-kai/claude-mem-proxy-fix.git
 bash claude-mem-proxy-fix/patch-claude-mem.sh
 ```
 
-## 修复内容
+## What it does
 
-### Patch 1: NO_PROXY 注入
+### Patch 1: NO_PROXY injection
 
-在 `worker-service.cjs` 的 `X5()` 函数中注入 `NO_PROXY=127.0.0.1,localhost`，让 CLI 子进程直连 localhost 不走代理。
+Injects `NO_PROXY=127.0.0.1,localhost` into the env returned by `X5()` in `worker-service.cjs`, so the CLI subprocess connects directly to localhost without going through the proxy.
 
 ```diff
 - e.CLAUDE_CODE_ENTRYPOINT="sdk-ts",t)
 + e.CLAUDE_CODE_ENTRYPOINT="sdk-ts",e.NO_PROXY="127.0.0.1,localhost",e.no_proxy="127.0.0.1,localhost",t)
 ```
 
-### Patch 2: 模型名补全
+### Patch 2: Model name normalization
 
-将 `~/.claude-mem/settings.json` 中的短模型名自动补全为带日期后缀的完整名：
+Auto-completes short model names in `~/.claude-mem/settings.json` with date suffixes:
 
-| 短名 | 补全为 |
-|------|--------|
+| Short name | Normalized to |
+|------------|---------------|
 | `claude-sonnet-4-5` | `claude-sonnet-4-5-20250929` |
 | `claude-haiku-4-5` | `claude-haiku-4-5-20251001` |
 
-## 注意
+## Notes
 
-- 每次 claude-mem 更新后需要重新执行 patch 脚本
-- 脚本会自动检测 claude-mem 版本，无需手动指定路径
-- 已应用的 patch 不会重复应用（幂等）
+- Re-run the patch script after each claude-mem update
+- Auto-detects claude-mem version, no manual path needed
+- Idempotent — safe to re-run
 
-## 跟踪
+## Tracking
 
-上游 issue: https://github.com/thedotmack/claude-mem/issues/1163
+Upstream issue: https://github.com/thedotmack/claude-mem/issues/1163
 
-等作者修了就不需要这个 patch 了。
+This patch is no longer needed once the upstream fix is merged.

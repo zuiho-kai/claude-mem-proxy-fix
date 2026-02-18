@@ -2,23 +2,15 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
-修复 [claude-mem](https://github.com/thedotmack/claude-mem) 插件在代理环境下 CLI 子进程超时的问题。
+修复 [claude-mem](https://github.com/thedotmack/claude-mem) worker 在 Windows / 代理环境下的三个问题。
 
 ## 问题
 
-当系统设置了 `HTTP_PROXY`/`HTTPS_PROXY`（如 clash、v2ray 等），且 `ANTHROPIC_BASE_URL` 指向 localhost 的 API 代理时，claude-mem 的 observation 提取功能会失败：
-
-1. **子进程超时** — `X5()` (getAgentEnv) 把 `HTTP_PROXY` 传给 Claude CLI 子进程，子进程访问 `127.0.0.1` 的 API 代理时走了 HTTP 代理 → 超时
-2. **模型名不匹配** — `CLAUDE_MEM_MODEL` 设为短名（如 `claude-sonnet-4-5`），部分 API 代理只认带日期后缀的完整名 → `503 model_not_found`
-
-## 症状
-
-```
-[ERROR] Generator failed {provider=claude, error=Timed out waiting for agent pool slot after 60000ms}
-[INFO ] ← Response received: API Error: 503 {"error":{"code":"model_not_found",...}}
-```
-
-Worker health check 显示 `initialized: false`，observations 表始终为空。
+| # | 问题 | 症状 |
+|---|------|------|
+| 1 | `HTTP_PROXY` 泄漏到 CLI 子进程 | `Timed out waiting for agent pool slot after 60000ms` |
+| 2 | 短模型名被 API 代理拒绝 | `503 model_not_found` |
+| 3 | 僵尸 bun worker 阻塞启动 | Claude Code 卡死 60 秒+，worker 静默失效 |
 
 ## 修复
 
@@ -51,6 +43,19 @@ bash claude-mem-proxy-fix/patch-claude-mem.sh
 | `claude-sonnet-4-5` | `claude-sonnet-4-5-20250929` |
 | `claude-haiku-4-5` | `claude-haiku-4-5-20251001` |
 
+### Patch 3: 僵尸进程自愈
+
+原逻辑：`start` 检测到端口 37777 被占用但 health check 不通时，直接放弃。本 patch 加入自愈：
+
+1. 检测占用端口的 PID（Windows 用 `netstat`，Unix 用 `lsof`）
+2. 杀掉僵尸进程
+3. 等待端口释放（最多 5 秒）
+4. 启动新 worker 并验证 health check
+
+```
+端口被占 → health check 失败 → 杀僵尸 PID → 端口释放 → spawn 新 worker → health check 通过
+```
+
 ## 注意
 
 - 每次 claude-mem 更新后需要重新执行 patch 脚本
@@ -59,6 +64,7 @@ bash claude-mem-proxy-fix/patch-claude-mem.sh
 
 ## 跟踪
 
-上游 issue: https://github.com/thedotmack/claude-mem/issues/1163
+- [#1163](https://github.com/thedotmack/claude-mem/issues/1163) — 代理绕过 + 模型名（Patch 1 & 2）
+- [#1161](https://github.com/thedotmack/claude-mem/issues/1161) — 僵尸进程（Patch 3）
 
 等作者修了就不需要这个 patch 了。

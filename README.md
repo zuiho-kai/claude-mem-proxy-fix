@@ -2,23 +2,15 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
-Fix [claude-mem](https://github.com/thedotmack/claude-mem) plugin CLI subprocess timeout in proxy environments.
+Patches for [claude-mem](https://github.com/thedotmack/claude-mem) worker issues on Windows / proxy environments.
 
-## Problem
+## Problems
 
-When `HTTP_PROXY`/`HTTPS_PROXY` is set (e.g. clash, v2ray) and `ANTHROPIC_BASE_URL` points to a localhost API proxy, claude-mem's observation extraction fails:
-
-1. **Subprocess timeout** — `X5()` (getAgentEnv) passes `HTTP_PROXY` to the spawned Claude CLI subprocess, which then routes requests to `127.0.0.1` through the HTTP proxy → timeout
-2. **Model name mismatch** — `CLAUDE_MEM_MODEL` set to short name (e.g. `claude-sonnet-4-5`), but some API proxies only accept full names with date suffix → `503 model_not_found`
-
-## Symptoms
-
-```
-[ERROR] Generator failed {provider=claude, error=Timed out waiting for agent pool slot after 60000ms}
-[INFO ] ← Response received: API Error: 503 {"error":{"code":"model_not_found",...}}
-```
-
-Worker health check shows `initialized: false`, observations table stays empty.
+| # | Issue | Symptom |
+|---|-------|---------|
+| 1 | `HTTP_PROXY` leaks into CLI subprocess | `Timed out waiting for agent pool slot after 60000ms` |
+| 2 | Short model name rejected by API proxy | `503 model_not_found` |
+| 3 | Zombie bun worker blocks startup | Claude Code hangs 60s+, worker silently non-functional |
 
 ## Fix
 
@@ -51,6 +43,19 @@ Auto-completes short model names in `~/.claude-mem/settings.json` with date suff
 | `claude-sonnet-4-5` | `claude-sonnet-4-5-20250929` |
 | `claude-haiku-4-5` | `claude-haiku-4-5-20251001` |
 
+### Patch 3: Zombie worker auto-recovery
+
+When the `start` command detects port 37777 is occupied but the worker fails health checks (zombie process), the original code just gives up. This patch adds self-healing:
+
+1. Detect PID holding the port (`netstat` on Windows, `lsof` on Unix)
+2. Kill the zombie process
+3. Wait for port release (up to 5s)
+4. Spawn a fresh worker and verify health
+
+```
+Port in use → health check FAIL → kill zombie PID → port freed → spawn new worker → health check OK
+```
+
 ## Notes
 
 - Re-run the patch script after each claude-mem update
@@ -59,6 +64,7 @@ Auto-completes short model names in `~/.claude-mem/settings.json` with date suff
 
 ## Tracking
 
-Upstream issue: https://github.com/thedotmack/claude-mem/issues/1163
+- [#1163](https://github.com/thedotmack/claude-mem/issues/1163) — Proxy bypass + model name (Patch 1 & 2)
+- [#1161](https://github.com/thedotmack/claude-mem/issues/1161) — Zombie worker (Patch 3)
 
-This patch is no longer needed once the upstream fix is merged.
+This patch is no longer needed once the upstream fixes are merged.

@@ -19,6 +19,7 @@ bash claude-mem-proxy-fix/apply.sh
 | 2 | Short model name rejected by API proxy | `503 model_not_found` | [02-model-name.md](patches/02-model-name.md) |
 | 3 | Zombie bun worker blocks startup | Claude Code hangs 60s+ | [03-zombie-recovery.md](patches/03-zombie-recovery.md) |
 | 4 | Chroma CLI only supports ARM64 on Windows | `Unsupported Windows architecture: x64` | [04-chroma-x64.md](patches/04-chroma-x64.md) |
+| 5 | `uvx.cmd` not found — chroma-mcp fails to start | `MCP error -32000: Connection closed` | [05-uvx-cmd.md](patches/05-uvx-cmd.md) |
 
 ## Apply a Single Patch
 
@@ -29,7 +30,22 @@ bash scripts/patch-03-zombie.sh      # Patch 3 only
 bash scripts/patch-04-chroma.sh      # Patch 4 only
 ```
 
-If a script fails, open the corresponding `patches/*.md` for manual fix steps.
+### Patch 5 — uvx.cmd shim (manual)
+
+claude-mem starts chroma-mcp via `uvx.cmd`, but `uv` only installs `uvx.exe` on Windows. Copy the shim:
+
+```bash
+cp uvx.cmd ~/.local/bin/uvx.cmd
+```
+
+Or create it manually:
+
+```cmd
+@echo off
+"%~dp0uvx.exe" %*
+```
+
+Then restart claude-mem worker (reopen Claude Code or call `/api/admin/shutdown`).
 
 ## Notes
 

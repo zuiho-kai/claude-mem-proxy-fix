@@ -50,7 +50,7 @@ Then restart claude-mem worker (reopen Claude Code or call `/api/admin/shutdown`
 ## Notes
 
 - Re-run after each claude-mem update
-- Auto-detects claude-mem version
+- Patches both `cache/` and `marketplaces/` install paths (the runtime copy lives in `marketplaces/`)
 - Idempotent — safe to re-run
 
 ## Tracking

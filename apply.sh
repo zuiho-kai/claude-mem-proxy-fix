@@ -5,19 +5,28 @@
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_URL="https://github.com/zuiho-kai/claude-mem-proxy-fix/blob/main/patches"
 
-# --- Detect worker ---
-PLUGIN_BASE="$HOME/.claude/plugins/cache/thedotmack/claude-mem"
-if [ ! -d "$PLUGIN_BASE" ]; then
-  echo "❌ claude-mem plugin not found: $PLUGIN_BASE"
-  exit 1
-fi
+# --- Detect worker(s) ---
+# claude-mem installs to two possible locations:
+#   cache/thedotmack/claude-mem/<version>/scripts/  — downloaded package
+#   marketplaces/thedotmack/plugin/scripts/         — active runtime copy
+# Both must be patched; the marketplaces copy is what actually runs.
+WORKERS=()
+CACHE_BASE="$HOME/.claude/plugins/cache/thedotmack/claude-mem"
+MARKET_BASE="$HOME/.claude/plugins/marketplaces/thedotmack/plugin"
 
-VERSION_DIR=$(ls -1d "$PLUGIN_BASE"/*/scripts/worker-service.cjs 2>/dev/null | sort -V | tail -1)
-if [ -z "$VERSION_DIR" ]; then
-  echo "❌ worker-service.cjs not found under $PLUGIN_BASE"
+for w in \
+  $(ls -1d "$CACHE_BASE"/*/scripts/worker-service.cjs 2>/dev/null | sort -V | tail -1) \
+  "$MARKET_BASE/scripts/worker-service.cjs"; do
+  [ -f "$w" ] && WORKERS+=("$w")
+done
+
+if [ ${#WORKERS[@]} -eq 0 ]; then
+  echo "❌ worker-service.cjs not found in cache/ or marketplaces/"
   exit 1
 fi
-echo "📦 Detected worker: $VERSION_DIR"
+for w in "${WORKERS[@]}"; do
+  echo "📦 Detected worker: $w"
+done
 echo ""
 
 # --- Run each patch ---

@@ -52,7 +52,7 @@ cp uvx.cmd ~/.local/bin/uvx.cmd
 ## 注意
 
 - 每次 claude-mem 更新后需要重新执行
-- 自动检测 claude-mem 版本，无需手动指定路径
+- 同时修补 `cache/` 和 `marketplaces/` 两个安装路径（实际运行的是 `marketplaces/` 副本）
 - 幂等，可重复执行
 
 ## 跟踪

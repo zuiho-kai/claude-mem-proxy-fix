@@ -5,41 +5,35 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/_find-workers.sh"
 
-# --- Detect worker-service.cjs ---
-PLUGIN_BASE="$HOME/.claude/plugins/cache/thedotmack/claude-mem"
-if [ ! -d "$PLUGIN_BASE" ]; then
-  echo "❌ Patch 4: claude-mem plugin not found: $PLUGIN_BASE"
-  echo "   See: ${SCRIPT_DIR}/../patches/04-chroma-x64.md"
-  exit 1
-fi
-
-VERSION_DIR=$(ls -1d "$PLUGIN_BASE"/*/scripts/worker-service.cjs 2>/dev/null | sort -V | tail -1)
-if [ -z "$VERSION_DIR" ]; then
-  echo "❌ Patch 4: worker-service.cjs not found under $PLUGIN_BASE"
-  echo "   See: ${SCRIPT_DIR}/../patches/04-chroma-x64.md"
-  exit 1
-fi
-WORKER="$VERSION_DIR"
-
-# --- Apply ---
-if grep -q 'process.arch!=="arm64"' "$WORKER"; then
-  echo "✅ Patch 4 (chroma-x64): already applied, skipping"
+# Only needed on x64 Windows
+if ! { [[ "$(uname -m)" == "x86_64" ]] && [[ "$(uname -s)" == *MINGW* || "$(uname -s)" == *MSYS* || "$(uname -s)" == *CYGWIN* || "${OS:-}" == "Windows_NT" ]]; }; then
+  echo "✅ Patch 4 (chroma-x64): not x64 Windows, skipping"
   exit 0
 fi
 
-# Only needed on x64 Windows
-if [[ "$(uname -m)" == "x86_64" ]] && [[ "$(uname -s)" == *MINGW* || "$(uname -s)" == *MSYS* || "$(uname -s)" == *CYGWIN* || "${OS:-}" == "Windows_NT" ]]; then
-  # Check Python chroma CLI
+# Check Python chroma CLI
+if ! command -v chroma &>/dev/null; then
+  echo "⚠️  Patch 4 (chroma-x64): Python chromadb not installed, installing..."
+  pip install chromadb 2>&1 | tail -3
   if ! command -v chroma &>/dev/null; then
-    echo "⚠️  Patch 4 (chroma-x64): Python chromadb not installed, installing..."
-    pip install chromadb 2>&1 | tail -3
-    if ! command -v chroma &>/dev/null; then
-      echo "❌ Patch 4 (chroma-x64): pip install chromadb failed"
-      echo "   Install manually: pip install chromadb"
-      echo "   See: ${SCRIPT_DIR}/../patches/04-chroma-x64.md"
-      exit 1
-    fi
+    echo "❌ Patch 4 (chroma-x64): pip install chromadb failed"
+    echo "   Install manually: pip install chromadb"
+    echo "   See: ${SCRIPT_DIR}/../patches/04-chroma-x64.md"
+    exit 1
+  fi
+fi
+
+# --- Apply to each worker ---
+APPLIED=0
+for WORKER in "${WORKERS[@]}"; do
+  LABEL="$(basename "$(dirname "$(dirname "$WORKER")")")"
+
+  if grep -q 'process.arch!=="arm64"' "$WORKER"; then
+    echo "✅ Patch 4 (chroma-x64): already applied — $LABEL"
+    APPLIED=$((APPLIED + 1))
+    continue
   fi
 
   node -e '
@@ -57,12 +51,12 @@ if [[ "$(uname -m)" == "x86_64" ]] && [[ "$(uname -s)" == *MINGW* || "$(uname -s
   ' "$WORKER"
 
   if grep -q 'process.arch!=="arm64"' "$WORKER"; then
-    echo "✅ Patch 4 (chroma-x64): applied (using Python chromadb)"
+    echo "✅ Patch 4 (chroma-x64): applied — $LABEL"
+    APPLIED=$((APPLIED + 1))
   else
-    echo "❌ Patch 4 (chroma-x64): failed — source structure may have changed"
+    echo "❌ Patch 4 (chroma-x64): failed — $LABEL"
     echo "   Manual fix: ${SCRIPT_DIR}/../patches/04-chroma-x64.md"
-    exit 1
   fi
-else
-  echo "✅ Patch 4 (chroma-x64): not x64 Windows, skipping"
-fi
+done
+
+[ "$APPLIED" -eq 0 ] && exit 1 || exit 0
